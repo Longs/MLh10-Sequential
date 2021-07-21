@@ -1,12 +1,14 @@
 import pdb
 import random
 import numpy as np
-from dist import uniform_dist, delta_dist, mixture_dist
+from dist import uniform_dist, delta_dist, mixture_dist,DDist
 from util import argmax_with_val, argmax
 from tensorflow import keras
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.optimizers import Adam
+
+
 
 class MDP:
     # Needs the following attributes:
@@ -74,21 +76,20 @@ def value_iteration(mdp, q, eps = 0.01, max_iters = 1000):
 # current definition of the q function
 def value(q, s):
     # Your code here (COPY FROM HW9)
-    raise NotImplementedError('value')
+    return max(q.get(s,a)for a in q.actions)
 
 # Given a state, return the action that is greedy with reespect to the
 # current definition of the q function
 def greedy(q, s):
-    # Your code here (COPY FROM HW9)
-    raise NotImplementedError('greedy')
+    rewards = [q.get(s,a)for a in q.actions]
+    return q.actions[np.argmax(rewards)]
 
 def epsilon_greedy(q, s, eps = 0.5):
     if random.random() < eps:  # True with prob eps, random action
-        # Your code here (COPY FROM HW9)
-        raise NotImplementedError('epsilon_greedy')
+        # Your code here
+        return uniform_dist(q.actions).draw()
     else:
-        # Your code here (COPY FROM HW9)
-        raise NotImplementedError('epsilon_greedy')
+        return greedy(q, s)
 
 class TabularQ:
     def __init__(self, states, actions):
@@ -104,7 +105,6 @@ class TabularQ:
     def get(self, s, a):
         return self.q[(s,a)]
     def update(self, data, lr):
-        # Your code here
         for item in data:
             s,a,t = item
             self.set(s,a,self.get(s,a) + lr*(t-self.get(s,a)))
@@ -117,12 +117,62 @@ print(f"{q.get(2, 'c')} - should be 15.0")
 
 
 def Q_learn(mdp, q, lr=.1, iters=100, eps = 0.5, interactive_fn=None):
-    # Your code here
-    raise NotImplementedError('Q_learn')
+
+    s = mdp.init_state()
     for i in range(iters):
         # include this line in the iteration, where i is the iteration number
+        a = epsilon_greedy(q,s,eps)
+        reward,s_ = mdp.sim_transition(s,a)
+        # print(reward)
+        # print(s_)
+        # print(value(q,s_))
+        # print(mdp.discount_factor)
+        future_val = 0 if mdp.terminal(s) else value(q, s_)
+        q.update([(s, a, (reward + mdp.discount_factor * future_val))], lr)
+        s=s_
         if interactive_fn: interactive_fn(q, i)
-    pass
+
+    return q
+
+
+###########################################
+def tinyTerminal(s):
+    return s==4
+def tinyR(s, a):
+    if s == 1: return 1
+    elif s == 3: return 2
+    else: return 0
+def tinyTrans(s, a):
+    if s == 0:
+        if a == 'a':
+            return DDist({1 : 0.9, 2 : 0.1})
+        else:
+            return DDist({1 : 0.1, 2 : 0.9})
+    elif s == 1:
+        return DDist({1 : 0.1, 0 : 0.9})
+    elif s == 2:
+        return DDist({2 : 0.1, 3 : 0.9})
+    elif s == 3:
+        return DDist({3 : 0.1, 0 : 0.5, 4 : 0.4})
+    elif s == 4:
+        return DDist({4 : 1.0})
+
+
+# def testQ():
+#     tiny = MDP([0, 1, 2, 3, 4], ['a', 'b'], tinyTrans, tinyR, 0.9)
+#     tiny.terminal = tinyTerminal
+#     q = TabularQ(tiny.states, tiny.actions)
+#     qf = Q_learn(tiny, q)
+#     return list(qf.q.items())
+
+# random.seed(0)
+# testQ()
+# print("should be")
+# print([((0, 'a'), 0.6649739221724159), ((0, 'b'), 0.1712369526453748), ((1, 'a'), 0.7732751316011999), ((1, 'b'), 1.2034912054227331), ((2, 'a'), 0.37197205380133874), ((2, 'b'), 0.45929063274463033), ((3, 'a'), 1.5156163024818292), ((3, 'b'), 0.8776852768653631), ((4, 'a'), 0.0), ((4, 'b'), 0.0)])
+
+
+###########################################
+
 
 # Simulate an episode (sequence of transitions) of at most
 # episode_length, using policy function to select actions.  If we find
@@ -200,11 +250,42 @@ def Q_learn_batch(mdp, q, lr=.1, iters=100, eps=0.5,
                   episode_length=10, n_episodes=2,
                   interactive_fn=None):
     # Your code here
-    raise NotImplementedError('Q_learn_batch')
+    all_episodes=[]
     for i in range(iters):
+        for _ in range(n_episodes):
+            reward,episode,animation = sim_episode(mdp,episode_length,lambda s:epsilon_greedy(q, s, eps))
+            #episode.append((s, a, r, s_prime)) OR episode.append((s, a, r, None))
+            all_episodes.append(episode)
+        
+        #convert all_experiences rewards into T using the existing Q values
+        updates=[]
+        for episode in all_episodes:
+            for experience in episode:
+                s,a,r,s_ = experience #NB s_ will be None if terminal
+                if s_ is None:
+                    future_value = 0
+                else:
+                    future_value = value(q,s_)
+                updates.append((s, a, (r + mdp.discount_factor * future_value)))
+
+        #run 1 large Q update
+        q.update(updates,lr)
+
         # include this line in the iteration, where i is the iteration number
         if interactive_fn: interactive_fn(q, i)
-    pass
+    return q
+
+def testBatchQ():
+    tiny = MDP([0, 1, 2, 3, 4], ['a', 'b'], tinyTrans, tinyR, 0.9)
+    tiny.terminal = tinyTerminal
+    q = TabularQ(tiny.states, tiny.actions)
+    qf = Q_learn_batch(tiny, q)
+    return list(qf.q.items())
+
+random.seed(0)
+print(testBatchQ())
+print("^^^^^^^^ should be:")
+print([((0, 'a'), 4.7566600197286535), ((0, 'b'), 3.993296047838986), ((1, 'a'), 5.292467934685342), ((1, 'b'), 5.364014782870985), ((2, 'a'), 4.139537149779127), ((2, 'b'), 4.155347555640753), ((3, 'a'), 4.076532544818926), ((3, 'b'), 4.551442974149778), ((4, 'a'), 0.0), ((4, 'b'), 0.0)])
 
 def make_nn(state_dim, num_hidden_layers, num_units):
     model = Sequential()
