@@ -68,9 +68,39 @@ class MDP:
 # dictionary mapping (s, a) pairs into Q values This must be
 # initialized before interactive_fn is called the first time.
 
-def value_iteration(mdp, q, eps = 0.01, max_iters = 1000):
+#def value_iteration(mdp, q, eps = 0.01, max_iters = 1000):
+def value_iteration(mdp, q, eps = 0.05, max_iters = 1000):
+
     # Your code here (COPY FROM HW9)
-    raise NotImplementedError('value_iteration')
+    gamma = mdp.discount_factor
+    R = mdp.reward_fn
+    T = mdp.transition_model
+
+    #Assumes that Q has already been initialised
+    while True:
+
+        q_new = q.copy()
+        i=0
+        #print(len(q.states))
+        for s in q.states:
+            #i+=1
+            #if i%100 == 0: print(i)
+            for a in q.actions:
+                expected_reward = 0
+                for s_ in q.states:
+                    #expected_reward += T(s,a).prob(s_) * R(s_,greedy(q,s_))
+                    max_q_a = max([q.get(s_,a) for a in q.actions])
+                    expected_reward += T(s,a).prob(s_) * max_q_a
+                new_value = R(s,a) +gamma*expected_reward
+                q_new.set(s,a,new_value)
+
+        #find the maximum difference between old and new values
+        diffs = [abs(q.get(s,a)-q_new.get(s,a)) for s in q.states for a in q.actions]
+        if max(diffs) < eps:
+            return q_new
+        else:
+            print(f"******** max: {max(diffs)}")
+            q = q_new.copy()
 
 # Given a state, return the value of that state, with respect to the
 # current definition of the q function
@@ -109,12 +139,12 @@ class TabularQ:
             s,a,t = item
             self.set(s,a,self.get(s,a) + lr*(t-self.get(s,a)))
         
-
+"""
 q = TabularQ([0,1,2,3],['b','c'])
 q.update([(0, 'b', 50), (2, 'c', 30)], 0.5)
 print(f"{q.get(0, 'b')} - should be 25.0")
 print(f"{q.get(2, 'c')} - should be 15.0")
-
+"""
 
 def Q_learn(mdp, q, lr=.1, iters=100, eps = 0.5, interactive_fn=None):
 
@@ -282,10 +312,10 @@ def testBatchQ():
     qf = Q_learn_batch(tiny, q)
     return list(qf.q.items())
 
-random.seed(0)
+""" random.seed(0)
 print(testBatchQ())
 print("^^^^^^^^ should be:")
-print([((0, 'a'), 4.7566600197286535), ((0, 'b'), 3.993296047838986), ((1, 'a'), 5.292467934685342), ((1, 'b'), 5.364014782870985), ((2, 'a'), 4.139537149779127), ((2, 'b'), 4.155347555640753), ((3, 'a'), 4.076532544818926), ((3, 'b'), 4.551442974149778), ((4, 'a'), 0.0), ((4, 'b'), 0.0)])
+print([((0, 'a'), 4.7566600197286535), ((0, 'b'), 3.993296047838986), ((1, 'a'), 5.292467934685342), ((1, 'b'), 5.364014782870985), ((2, 'a'), 4.139537149779127), ((2, 'b'), 4.155347555640753), ((3, 'a'), 4.076532544818926), ((3, 'b'), 4.551442974149778), ((4, 'a'), 0.0), ((4, 'b'), 0.0)]) """
 
 def make_nn(state_dim, num_hidden_layers, num_units):
     model = Sequential()
@@ -300,13 +330,94 @@ class NNQ:
     def __init__(self, states, actions, state2vec, num_layers, num_units, epochs=1):
         self.actions = actions
         self.states = states
-        self.state2vec = state2vec
         self.epochs = epochs
-        self.models = None              # Your code here
-        if self.models is None: raise NotImplementedError('NNQ.models')
+        self.state2vec = state2vec
+        state_dim = state2vec(states[0]).shape[1] # a row vector
+        self.models = {a:make_nn(state_dim, num_layers, num_units) for a in actions}
+    def get(self, s, a):
+        return self.models[a].predict(self.state2vec(s))
+    def update(self, data, lr):
+        for a in self.actions:
+            if [s for (s, at, t) in data if a==at]:
+                X = np.vstack([self.state2vec(s) for (s, at, t) in data if a==at])
+                Y = np.vstack([t for (s, at, t) in data if a==at])
+                self.models[a].fit(X, Y, epochs = self.epochs, verbose = False)
+    def __init__(self, states, actions, state2vec, num_layers, num_units, epochs=1):
+        self.actions = actions
+        self.states = states
+        self.state2vec = state2vec
+        #NB dimension of the neural network will be the size of the one-hot encoding (altho this is the same as len(states))
+        state_dim = state2vec(states[0]).shape[1]
+        self.epochs = epochs
+        self.models = {}
+        #one NN per action
+        for action in self.actions:
+            self.models[action]=make_nn(state_dim,num_layers,num_units)
+
+
     def get(self, s, a):
         # Your code here
-        raise NotImplementedError('NNQ.get')
+        return self.models[a].predict(self.state2vec(s))[0][0]
+
+    def update(self, data, lr, epochs = 1):
+        # extract relevant data for each action
+        action_data_x={}
+        action_data_y={}
+        for action in self.actions:
+            action_data_x[action]=[] #[X],[Y]
+            action_data_y[action]=[] #[X],[Y]
+        
+        for point in data:
+            s,a,t = point
+            #action_data_x[a].append(self.state2vec(s))
+            action_data_x[a].append(self.state2vec(s)[0])
+            action_data_y[a].append(t)
+
+        #for action in self.actions:
+        #    if len(action_data_x[action]) > 0:
+        #        self.models[action].fit(np.array(action_data_x[action]), np.array(action_data_y[action]), epochs=epochs)
+
+        for a in self.actions:
+            if [s for (s, at, t) in data if a==at]:
+                X = np.vstack([self.state2vec(s) for (s, at, t) in data if a==at])
+                Y = np.vstack([t for (s, at, t) in data if a==at])
+                self.models[a].fit(X, Y, epochs = self.epochs, verbose = False)
+
+def test_NNQ(data):
+    tiny = MDP([0, 1, 2, 3, 4], ['a', 'b'], tinyTrans, tinyR, 0.9)
+    tiny.terminal = tinyTerminal
+    q = NNQ(tiny.states, tiny.actions, tiny.state2vec, 2, 10)
+    q.update(data, 1)
+    return [q.get(s,a) for s in q.states for a in q.actions]
+
+#print("VVVV test_NNQ VVVV")
+#print(test_NNQ([(0,'a',0.3),(1,'a',0.1),(0,'a',0.1),(1,'a',0.5)]))
+
+
+class mit_NNQ:
+    def __init__(self, states, actions, state2vec, num_layers, num_units, epochs=1):
+        self.actions = actions
+        self.states = states
+        self.epochs = epochs
+        self.state2vec = state2vec
+        state_dim = state2vec(states[0]).shape[1] # a row vector
+        self.models = {a:make_nn(state_dim, num_layers, num_units) for a in actions}
+    def get(self, s, a):
+        return self.models[a].predict(self.state2vec(s))
     def update(self, data, lr):
-        # Your code here
-        raise NotImplementedError('NNQ.update')
+        for a in self.actions:
+            if [s for (s, at, t) in data if a==at]:
+                X = np.vstack([self.state2vec(s) for (s, at, t) in data if a==at])
+                Y = np.vstack([t for (s, at, t) in data if a==at])
+                self.models[a].fit(X, Y, epochs = self.epochs, verbose = False)
+
+
+def test_mit_NNQ(data):
+    tiny = MDP([0, 1, 2, 3, 4], ['a', 'b'], tinyTrans, tinyR, 0.9)
+    tiny.terminal = tinyTerminal
+    q = NNQ(tiny.states, tiny.actions, tiny.state2vec, 2, 10)
+    q.update(data, 1)
+    return [q.get(s,a) for s in q.states for a in q.actions]
+
+#print("VVVV test_NNQ VVVV")
+#print(test_mit_NNQ([(0,'a',0.3),(1,'a',0.1),(0,'a',0.1),(1,'a',0.5)]))

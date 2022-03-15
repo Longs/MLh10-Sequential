@@ -233,12 +233,15 @@ def test_learn_play(d = 6, num_layers = 2, num_units = 100,
         q = NNQ(game.states, game.actions, game.state2vec, num_layers, num_units,
                 epochs=batch_epochs if batch else 1)
     if batch:
-        qf = Q_learn_batch(game, q, iters=iters, episode_length = 100, n_episodes=10,
+        # qf = Q_learn_batch(game, q, iters=iters, episode_length = 100, n_episodes=10,
+        #                    interactive_fn=interact)
+                qf = Q_learn_batch(game, q, iters=iters, episode_length = 100, n_episodes=num_episodes,
                            interactive_fn=interact)
     else:
         qf = Q_learn(game, q, iters=iters, interactive_fn=interact)
     if scores:
         print('String to upload (incude quotes): "%s"'%toHex(pickle.dumps([tabular, batch, scores], 0).decode()))
+        print('non hex: "%s"'%pickle.dumps([tabular, batch, scores], 0))
         # Plot learning curve
         plot_points(np.array([s[0] for s in scores]),
                     np.array([s[1] for s in scores]))
@@ -262,12 +265,18 @@ def test_solve_play(d = 6, draw=False,
 ##########   Test cases    
 
 # Value Iteration
-# test_solve_play()
+#test_solve_play() # takes > 10 minutes
 # Tabular Q-learn
-# test_learn_play(iters=100000, tabular=True, batch=False)
+
+""" for epsilon in range(1,10):
+    print(f"\n***  eps = {epsilon/10} **** ")
+    test_learn_play(d=6,iters=500000, eps = epsilon/10 ,tabular=True, batch=False) """
+
+
 # Tabular Batch Q-learn
-# test_learn_play(iters=10, tabular=True, batch=True) # Check: why do we want fewer iterations here?
+#test_learn_play(d=6,iters=500, tabular=True, batch=True) # Check: why do we want fewer iterations here?
 # NN Q-learn
-# test_learn_play(iters=100000, tabular=False, batch=False)
+#test_learn_play(d=4,iters=100000, tabular=False, batch=False)
 # NN Batch Q-learn (Fitted Q-learn)
-# test_learn_play(iters=10, tabular=False, batch=True)
+test_learn_play(iters=10, tabular=False, batch=True, num_episodes=75)
+#test_learn_play(iters=200, tabular=False, batch=True)
